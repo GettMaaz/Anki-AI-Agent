@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" rel="stylesheet">
+    <title>Anki Agent</title>
+    <style>
+        body {
+            background-color: rgb(59, 59, 59);
+            font-family:  "JetBrains Mono", monospace;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            background-color: rgb(37, 37, 37);
+            padding: 25px 25px 0 25px;
+            border-radius: 7px;
+            box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;
+        }
+
+        .preview-section {
+            background-color: rgb(37, 37, 37);
+            padding: 20px 20px 0 20px;
+            margin-top: 30px;
+            border-radius: 7px;
+            box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;
+        }
+
+        input,
+        select,
+        button {
+            display: block;
+            width: 275px;
+            padding: 10px;
+            margin-bottom: 25px;
+            border-radius: 7px;
+            cursor: pointer;
+            background-color: #30323D;
+            color: #e8e8e8;
+            border: none;
+        }
+
+        button {
+            background-color: #1D3461;
+            transition: background-color 0.25s ease-out;
+        }
+
+        button:hover {
+            background-color: #054A91;
+        }
+
+        .connected {
+            color: greenyellow;
+        }
+
+        .error {
+            color: red;
+        }
+
+        .card {
+            background-color: rgb(15, 15, 15);
+            padding: 20px 20px 20px 20px;
+            border-radius: 7px;
+            margin-bottom: 25px;
+            box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;
+            color:#e8e8e8;
+        }
+
+        .front {
+            color: #69FFF1;
+        }
+
+        .back {
+            color: #717C89;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <input type="text" placeholder="Topic..." id="topic-input">
+        <input type="number" id="number-input" value="10">
+        <select id="choose-pack">
+            <option value="">Loading packs...</option>
+        </select>
+        <p id="status"></p>
+        <button id="create-button">Create Cards</button>
+    </div>
+    <section class="preview-section">
+        <div id="preview-div"></div>
+        <button id="send-button">Send to Anki</button>
+        <button id="repair-button">Repair Cards</button>
+    </section>
+<script>
+    const numberInput = document.getElementById('number-input');
+    const choosePack = document.getElementById('choose-pack');
+    const statusEl = document.getElementById('status');
+    const createBtn = document.getElementById('create-button');
+    const topicInput = document.getElementById('topic-input');
+    const preview = document.getElementById('preview-div');
+    const sendButton = document.getElementById('send-button');
+    const repair = document.getElementById('repair-button');
+    let cards = [];
+
+    async function loadDecks() {
+        try {
+        const url = 'http://localhost:8765'
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({action: "deckNames", version: 6})
+        })
+        const data = await response.json();
+
+        for(let i = 0; i < data.result.length; i++){
+            const option = document.createElement('option')
+            option.textContent = data.result[i]
+            option.value = data.result[i]
+            choosePack.appendChild(option)
+        }
+
+        statusEl.textContent = '✓ Connected to Anki'
+        statusEl.classList.add('connected')
+        } catch (error) {
+            console.error('There was an error loading data:', error.message);
+
+            statusEl.textContent = '✗ Anki is not available'
+            statusEl.classList.add('error')
+        }
+    }
+
+    window.addEventListener('load', () => {
+        loadDecks()
+    })
+
+    async function generateCards() {
+        try {
+        const topic = topicInput.value
+        if(topic === ''){
+            return alert('Enter topic!')
+        }
+
+        const prompt = `create me please on this topic ${topic}, ${numberInput.value} of card regarding topic. You will to create only in JSON format - example how will look in JSON format [{ "front": "...", "back": "..."}] and please you write only in JSON, no need for explanations, No Markdown backticks. Only clear JSON `
+
+        const response = await fetch('http://localhost:3000/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: prompt })
+        })
+        cards = await response.json()
+        preview.innerHTML = '';
+        
+        for(let i = 0; i < cards.length;i++){
+            let newElement = document.createElement('div')
+            newElement.innerHTML = `<p class="front">${cards[i].front}</p> <p class="back">${cards[i].back}</p>`;
+            newElement.classList.add('card')
+            preview.appendChild(newElement);
+        }
+    } catch (error) {
+        console.error('Error: Card generation failed.', error.message);
+    }
+    }
+
+    createBtn.addEventListener('click', () => {
+        generateCards()
+    })
+
+    async function sendToAnki() {
+        try {
+        for(let i = 0; i < cards.length;i++){
+            const url = 'http://localhost:8765';
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'addNote',
+                    version: 6,
+                    params: {
+                        note: {
+                            deckName: choosePack.value,
+                            modelName: 'Basic',
+                            fields: {
+                                Front: cards[i].front,
+                                Back: cards[i].back
+                            }
+                        }
+                    }
+                })
+            })
+            
+
+        }
+        alert('Done!')
+        } catch (error) {
+            console.error('Network Error: Failed to send to Anki.', error.message);
+        }
+    }
+
+    sendButton.addEventListener('click', () => {
+        sendToAnki()
+    })
+
+    async function repairCards() {
+        try {
+        const prompt = `Hi, please check, correct, and revise these cards ${JSON.stringify(cards)} so they make sense. and please you write only in JSON, no need for explanations, No Markdown backticks. Only clear JSON.`
+
+        const response = await fetch('http://localhost:3000/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: prompt })
+        })
+        cards = await response.json()
+        preview.innerHTML = '';
+
+        for(let i = 0; i < cards.length;i++){
+            let newElement = document.createElement('div')
+            newElement.innerHTML = `<p class="front">${cards[i].front}</p> <p class="back">${cards[i].back}</p>`;
+            newElement.classList.add('card')
+            preview.appendChild(newElement);
+            }
+        } catch (error) {
+            console.error('Data Error: Card repair failed.', error.message);
+        }
+    }
+
+    repair.addEventListener('click', () => {
+        repairCards()
+    })
+</script>
+</body>
+</html>
